@@ -1,0 +1,6 @@
+Kernel = RBF, decision = ovo 
+Fold, Training time, Testing error, Optimization time, Optimal param
+1, 0.6809593604630209, 7.396, 147.38299073114467, C = 8; gamma = 8
+2, 0.5984366537886672, 6.65, 131.47755126184347, C = 8; gamma = 8
+3, 0.6579445614261203, 6.961, 143.75185248574417, C = 128; gamma = 8
+4, 0.6169598142732866, 6.716, 139.26892716069415, C = 8; gamma = 8

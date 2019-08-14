@@ -1,0 +1,5 @@
+Fold, No hyperboxes before pruning, No hyperboxes after pruning, Training time, Testing error before pruning, Testing error after pruning
+1.0, 23.0, 22.0, 0.1701896581798792, 74.194, 73.656
+2.0, 25.0, 11.0, 0.18773924256674945, 79.189, 60.541
+3.0, 26.0, 12.0, 0.16801608144305646, 75.741, 63.881
+4.0, 22.0, 19.0, 0.1898303950438276, 81.402, 81.941
