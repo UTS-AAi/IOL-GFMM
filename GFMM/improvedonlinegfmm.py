@@ -99,7 +99,7 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 self.delay()
 
         self.misclass = 1
-        threshold = np.maximum(self.sigma, 1 - self.gamma * self.teta)
+        threshold = max(self.sigma, 1 - self.gamma * self.teta)
         # for each input sample
         for i in range(yX):
             classOfX = patClassId[i]
