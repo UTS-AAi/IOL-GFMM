@@ -335,12 +335,17 @@ class OnlineGFMM(BaseGFMMClassifier):
         # keep one hyperbox for class prunned all
         current_classes = np.unique(self.classId)
         class_tmp = self.classId[accuracy_larger_half]
+		class_tmp_keep = self.classId[accuracy_larger_half_keep_nojoin]
         for c in current_classes:
             if c not in class_tmp:
                 pos = np.nonzero(self.classId == c)
                 id_kept = np.random.randint(len(pos))
                 # keep pos[id_kept]
                 accuracy_larger_half[pos[id_kept]] = True
+			if c not in class_tmp_keep:
+                pos = np.nonzero(self.classId == c)
+                id_kept = np.random.randint(len(pos))
+                accuracy_larger_half_keep_nojoin[pos[id_kept]] = True
         
         V_prun_remove = self.V[accuracy_larger_half]
         W_prun_remove = self.W[accuracy_larger_half]
