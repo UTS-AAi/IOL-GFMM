@@ -372,7 +372,7 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 # More than one hyperbox with highest membership => random choosing
                 id_min = maxVind[np.random.randint(len(maxVind))]
                         
-                if self.classId[id_min] != patClassIdTest[i] and patClassIdTest[i] != 0:
+                if self.classId[id_min] != patClassIdTest[i] and patClassIdTest[i] != UNLABELED_CLASS:
                     no_predicted_samples_hyperboxes[id_min, 1] = no_predicted_samples_hyperboxes[id_min, 1] + 1
                 else:
                     no_predicted_samples_hyperboxes[id_min, 0] = no_predicted_samples_hyperboxes[id_min, 0] + 1
