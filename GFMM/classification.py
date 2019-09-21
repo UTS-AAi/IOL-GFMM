@@ -176,17 +176,18 @@ def predict_with_probability(V, W, classId, numSamples, XlT, XuT, patClassIdTest
                           + summis           Number of misclassified objects
                           + misclass         Binary error map
                           + numSampleInBoundary     The number of samples in decision boundary
+                          + predicted_class   Predicted class
 
     """
-	
-	if len(XlT.shape) == 1:
+    if len(XlT.shape) == 1:
         XlT = XlT.reshape(1, -1)
     if len(XuT.shape) == 1:
         XuT = XuT.reshape(1, -1)
-		
+        
     #initialization
     yX = XlT.shape[0]
     misclass = np.zeros(yX)
+    predicted_class = np.full(yX, None)
 
     # classifications
     numPointInBoundary = 0
@@ -199,33 +200,43 @@ def predict_with_probability(V, W, classId, numSamples, XlT, XuT, patClassIdTest
             maxVind = np.nonzero(mem == bmax)[0]                         # get indexes of all hyperboxes with max membership
     
             if bmax == 0:
-                print('zero maximum membership value')                     # this is probably bad...
-                misclass[i] = True
+                #print('zero maximum membership value')                     # this is probably bad...
+                predicted_class[i] = classId[maxVind[0]]
+                if predicted_class[i] == patClassIdTest[i]:
+                    misclass[i] = False
+                else:
+                    misclass[i] = True
             else:
                 cls_same_mem = np.unique(classId[maxVind])
                 if len(cls_same_mem) > 1:
-                    numPointInBoundary = numPointInBoundary + 1
-                    #print("Using probability function")
-                    sum_prod_denum = (mem[maxVind] * numSamples[maxVind]).sum()
-                    max_prob = -1
                     cls_val = UNLABELED_CLASS
-                    pre_id_cls = None
-                    for c in cls_same_mem:
-                        id_cls = np.nonzero(classId[maxVind] == c)[0]
-                        sum_pro_num = (mem[maxVind[id_cls]] * numSamples[maxVind[id_cls]]).sum()
-                        tmp = sum_pro_num / sum_prod_denum
+                    id_box_with_one_sample = np.nonzero(numSamples[maxVind] == 1)[0]
+                    if len(id_box_with_one_sample) == 0:
+                        numPointInBoundary = numPointInBoundary + 1
+                        #print("Using probability function")
+                        sum_prod_denum = (mem[maxVind] * numSamples[maxVind]).sum()
+                        max_prob = -1
+                        pre_id_cls = None
+                        for c in cls_same_mem:
+                            id_cls = np.nonzero(classId[maxVind] == c)[0]
+                            sum_pro_num = (mem[maxVind[id_cls]] * numSamples[maxVind[id_cls]]).sum()
+                            tmp = sum_pro_num / sum_prod_denum
+                            
+                            if tmp > max_prob or (tmp == max_prob and pre_id_cls is not None and numSamples[maxVind[id_cls]].sum() > numSamples[maxVind[pre_id_cls]].sum()):
+                                max_prob = tmp
+                                cls_val = c
+                                pre_id_cls = id_cls
+                    else:
+                        cls_val = classId[maxVind[id_box_with_one_sample[0]]]
                         
-                        if tmp > max_prob or (tmp == max_prob and pre_id_cls is not None and numSamples[maxVind[id_cls]].sum() > numSamples[maxVind[pre_id_cls]].sum()):
-                            max_prob = tmp
-                            cls_val = c
-                            pre_id_cls = id_cls
-                        
+                    predicted_class[i] = cls_val
                     if cls_val == patClassIdTest[i]:
                         misclass[i] = False
                     else:
                         misclass[i] = True
                 else:
-                    if np.any(classId[maxVind] == patClassIdTest[i]) == True:
+                    predicted_class[i] = classId[maxVind[0]]
+                    if classId[maxVind[0]] == patClassIdTest[i]:
                         misclass[i] = False
                     else:
                         misclass[i] = True
@@ -234,6 +245,6 @@ def predict_with_probability(V, W, classId, numSamples, XlT, XuT, patClassIdTest
     # results
     summis = np.sum(misclass).astype(np.int64)
 
-    result = Bunch(summis = summis, misclass = misclass, numSampleInBoundary = numPointInBoundary)
+    result = Bunch(summis = summis, misclass = misclass, numSampleInBoundary = numPointInBoundary, predicted_class=predicted_class)
     
     return result
