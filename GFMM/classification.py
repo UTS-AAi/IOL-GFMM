@@ -210,8 +210,14 @@ def predict_with_probability(V, W, classId, numSamples, XlT, XuT, patClassIdTest
                 cls_same_mem = np.unique(classId[maxVind])
                 if len(cls_same_mem) > 1:
                     cls_val = UNLABELED_CLASS
-                    id_box_with_one_sample = np.nonzero(numSamples[maxVind] == 1)[0]
-                    if len(id_box_with_one_sample) == 0:
+					is_find_prob_val = True
+					if bmax == 1:
+						id_box_with_one_sample = np.nonzero(numSamples[maxVind] == 1)[0]
+						if len(id_box_with_one_sample) > 0:
+							cls_val = classId[maxVind[id_box_with_one_sample[0]]]
+							is_find_prob_val = False
+					
+					if is_find_prob_val:
                         numPointInBoundary = numPointInBoundary + 1
                         #print("Using probability function")
                         sum_prod_denum = (mem[maxVind] * numSamples[maxVind]).sum()
@@ -226,9 +232,7 @@ def predict_with_probability(V, W, classId, numSamples, XlT, XuT, patClassIdTest
                                 max_prob = tmp
                                 cls_val = c
                                 pre_id_cls = id_cls
-                    else:
-                        cls_val = classId[maxVind[id_box_with_one_sample[0]]]
-                        
+                   
                     predicted_class[i] = cls_val
                     if cls_val == patClassIdTest[i]:
                         misclass[i] = False
