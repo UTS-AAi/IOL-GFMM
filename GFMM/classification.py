@@ -34,44 +34,42 @@ def predict(V, W, classId, XlT, XuT, patClassIdTest, gama = 1, oper = 'min'):
       result           A object with Bunch datatype containing all results as follows:
                           + summis           Number of misclassified objects
                           + misclass         Binary error map
-                          + sumamb           Number of objects with maximum membership in more than one class
-                          + out              Soft class memberships
-                          + mem              Hyperbox memberships
+                          + predicted_class   Predicted class
 
     """
-	if len(XlT.shape) == 1:
+    
+    if len(XlT.shape) == 1:
         XlT = XlT.reshape(1, -1)
     if len(XuT.shape) == 1:
         XuT = XuT.reshape(1, -1)
-		
-    #initialization
+        
+    #initialization        
     yX = XlT.shape[0]
     misclass = np.zeros(yX)
-
+    predicted_class = np.full(yX, None)
     # classifications
     for i in range(yX):
         mem = memberG(XlT[i, :], XuT[i, :], V, W, gama, oper) # calculate memberships for all hyperboxes
         bmax = mem.max()	                                          # get max membership value
         maxVind = np.nonzero(mem == bmax)[0]                         # get indexes of all hyperboxes with max membership
 
-        if bmax == 0:
-            print('zero maximum membership value')                     # this is probably bad...
-            misclass[i] = True
+        winner_cls = np.unique(classId[maxVind])
+        if len(winner_cls) > 1:
+            #print('Input is in the boundary')
+            # make random selection
+            predicted_class[i] = random.choice(winner_cls)
         else:
-            if len(np.unique(classId[maxVind])) > 1:
-                #print('Input is in the boundary')
-                misclass[i] = True
-            else:
-                if np.any(classId[maxVind] == patClassIdTest[i]) == True or patClassIdTest[i] == UNLABELED_CLASS:
-                    misclass[i] = False
-                else:
-                    misclass[i] = True
-                #misclass[i] = ~(np.any(classId[maxVind] == patClassIdTest[i]) | (patClassIdTest[i] == 0))
-
+            predicted_class[i] = classId[maxVind[0]]
+        
+        if predicted_class[i] == patClassIdTest[i] or patClassIdTest[i] == UNLABELED_CLASS:
+            misclass[i] = False
+        else:
+            misclass[i] = True
+                
     # results
     summis = np.sum(misclass).astype(np.int64)
 
-    result = Bunch(summis = summis, misclass = misclass)
+    result = Bunch(summis = summis, misclass = misclass, predicted_class=predicted_class)
     return result
 
 def predict_with_manhattan(V, W, classId, XlT, XuT, patClassIdTest, gama = 1, oper = 'min'):
@@ -95,17 +93,20 @@ def predict_with_manhattan(V, W, classId, XlT, XuT, patClassIdTest, gama = 1, op
                           + summis           Number of misclassified objects
                           + misclass         Binary error map
                           + numSampleInBoundary     The number of samples in decision boundary
+                          + predicted_class   Predicted class
 
     """
-	if len(XlT.shape) == 1:
+    if len(XlT.shape) == 1:
         XlT = XlT.reshape(1, -1)
     if len(XuT.shape) == 1:
         XuT = XuT.reshape(1, -1)
-		
+        
     #initialization
     yX = XlT.shape[0]
     misclass = np.zeros(yX)
+    mem_vals = np.zeros(yX)
     numPointInBoundary = 0
+    predicted_class = np.full(yX, None)
     # classifications
     for i in range(yX):
         if patClassIdTest[i] == UNLABELED_CLASS:
@@ -114,41 +115,48 @@ def predict_with_manhattan(V, W, classId, XlT, XuT, patClassIdTest, gama = 1, op
             mem = memberG(XlT[i, :], XuT[i, :], V, W, gama, oper) # calculate memberships for all hyperboxes
             bmax = mem.max()	                                          # get max membership value
             maxVind = np.nonzero(mem == bmax)[0]                         # get indexes of all hyperboxes with max membership
-    
-            if bmax == 0:
-                print('zero maximum membership value')                     # this is probably bad...
-                misclass[i] = True
-            else:
-                if len(np.unique(classId[maxVind])) > 1:
-                    numPointInBoundary = numPointInBoundary + 1
-                    #print("Using Manhattan function")
-                    if (XlT[i] == XuT[i]).all() == False:
-                        XlT_mat = np.ones((len(maxVind), 1)) * XlT[i]
-                        XuT_mat = np.ones((len(maxVind), 1)) * XuT[i]
-                        XgT_mat = (XlT_mat + XuT_mat) / 2
-                    else:
-                        XgT_mat = np.ones((len(maxVind), 1)) * XlT[i]
-                    # Find all average points of all hyperboxes with the same membership value
-                    avg_point_mat = (V[maxVind] + W[maxVind]) / 2
-                    # compute the manhattan distance from XgT_mat to all average points of all hyperboxes with the same membership value
-                    maht_dist = manhattan_distance(avg_point_mat, XgT_mat)
-                    id_min_dist = maht_dist.argmin()
-                    
-                    if classId[maxVind[id_min_dist]] == patClassIdTest[i]:
-                        misclass[i] = False
-                    else:
-                        misclass[i] = True
+            mem_vals[i] = bmax
+            
+#            if bmax == 0:
+#                predicted_class[i] = classId[maxVind[0]]
+#                if predicted_class[i] == patClassIdTest[i]:
+#                    misclass[i] = False
+#                else:
+#                    misclass[i] = True
+#            else:
+            if len(np.unique(classId[maxVind])) > 1:
+                numPointInBoundary = numPointInBoundary + 1
+                #print("Using Manhattan function")
+                if (XlT[i] == XuT[i]).all() == False:
+                    XlT_mat = np.ones((len(maxVind), 1)) * XlT[i]
+                    XuT_mat = np.ones((len(maxVind), 1)) * XuT[i]
+                    XgT_mat = (XlT_mat + XuT_mat) / 2
                 else:
-                    if np.any(classId[maxVind] == patClassIdTest[i]) == True:
-                        misclass[i] = False
-                    else:
-                        misclass[i] = True
+                    XgT_mat = np.ones((len(maxVind), 1)) * XlT[i]
+                # Find all average points of all hyperboxes with the same membership value
+                avg_point_mat = (V[maxVind] + W[maxVind]) / 2
+                # compute the manhattan distance from XgT_mat to all average points of all hyperboxes with the same membership value
+                maht_dist = manhattan_distance(avg_point_mat, XgT_mat)
+                #maht_dist = min_distance(avg_point_mat, XgT_mat)
+                id_min_dist = maht_dist.argmin()
+                
+                predicted_class[i] = classId[maxVind[id_min_dist]]
+                if classId[maxVind[id_min_dist]] == patClassIdTest[i]:
+                    misclass[i] = False
+                else:
+                    misclass[i] = True
+            else:
+                predicted_class[i] = classId[maxVind[0]]
+                if classId[maxVind[0]] == patClassIdTest[i]:
+                    misclass[i] = False
+                else:
+                    misclass[i] = True
                     #misclass[i] = ~(np.any(classId[maxVind] == patClassIdTest[i]) | (patClassIdTest[i] == 0))
 
     # results
     summis = np.sum(misclass).astype(np.int64)
 
-    result = Bunch(summis = summis, misclass = misclass, numSampleInBoundary = numPointInBoundary)
+    result = Bunch(summis = summis, misclass = misclass, numSampleInBoundary = numPointInBoundary, predicted_class=predicted_class, mem_vals=mem_vals)
     
     return result
 

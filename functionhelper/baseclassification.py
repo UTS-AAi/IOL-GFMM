@@ -11,7 +11,7 @@ import numpy as np
 from functionhelper.membershipcalc import simpsonMembership
 from functionhelper.bunchdatatype import Bunch
 
-def predict(V, W, classId, XhT, patClassIdTest, gama = 1):
+def predict(V, W, classId, XhT, patClassIdTest, gama = 1, is_using_manhattan=True):
     """
     FMNN classifier (test routine)
     
@@ -34,17 +34,14 @@ def predict(V, W, classId, XhT, patClassIdTest, gama = 1):
                           + mem              Hyperbox memberships
 
     """
-	if len(XhT.shape) == 1:
+    if len(XhT.shape) == 1:
         XhT = XhT.reshape(1, -1)
-		
+
     #initialization
     yX = XhT.shape[0]
+    predicted_class = np.full(yX, None)
     misclass = np.zeros(yX)
-    #classes = np.unique(classId)
-    #noClasses = classes.size
-    #ambiguity = np.zeros(yX)
     mem = np.zeros((yX, V.shape[0]))
-    #out = np.zeros((yX, noClasses))
 
     # classifications
     for i in range(yX):
@@ -52,26 +49,39 @@ def predict(V, W, classId, XhT, patClassIdTest, gama = 1):
         bmax = mem[i,:].max()	                               # get max membership value
         maxVind = np.nonzero(mem[i,:] == bmax)[0]           # get indexes of all hyperboxes with max membership
         
-        #for j in range(noClasses):
-            #out[i, j] = mem[i, classId == classes[j]].max()            # get max memberships for each class
+        winner_cls = np.unique(classId[maxVind])
         
-        #ambiguity[i] = np.sum(out[i, :] == bmax) 						  # number of different classes with max membership
-        
-        if bmax == 0:
-            print('zero maximum membership value')                     # this is probably bad...
-            
-#        misclass[i] = ~(np.any(classId[maxVind] == patClassIdTest[i]))
-#        
-        if len(np.unique(classId[maxVind])) > 1:
-            misclass[i] = True
+        if len(winner_cls) > 1:
+            if is_using_manhattan == True:
+                #print("Using Manhattan function")
+                XgT_mat = np.ones((len(maxVind), 1)) * XhT[i]
+                # Find all average points of all hyperboxes with the same membership value
+                avg_point_mat = (V[maxVind] + W[maxVind]) / 2
+                # compute the manhattan distance from XgT_mat to all average points of all hyperboxes with the same membership value
+                maht_dist = manhattan_distance(avg_point_mat, XgT_mat)
+                
+                id_min_dist = maht_dist.argmin()
+                
+                predicted_class[i] = classId[maxVind[id_min_dist]]
+            else:
+                # select random class
+                predicted_class[i] = rd.choice(winner_cls)
+                
+            if predicted_class[i] == patClassIdTest[i]:
+                misclass[i] = False
+            else:
+                misclass[i] = True
         else:
-            misclass[i] = ~(np.any(classId[maxVind] == patClassIdTest[i]))
+            predicted_class[i] = classId[maxVind[0]]
+            if predicted_class[i] == patClassIdTest[i]:
+                misclass[i] = False
+            else:
+                misclass[i] = True
     
     # results
-    #sumamb = np.sum(ambiguity > 1)
     summis = np.sum(misclass).astype(np.int64)
     
-    #result = Bunch(summis = summis, misclass = misclass, sumamb = sumamb, out = out, mem = mem)
-    result = Bunch(summis = summis, misclass = misclass)
+    result = Bunch(summis = summis, misclass = misclass, predicted_class=predicted_class)
+    
     return result
 
