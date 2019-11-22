@@ -353,13 +353,12 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
     
         #initialization
         yX = XlT.shape[0]
-        mem = np.zeros((yX, self.V.shape[0]))
         no_predicted_samples_hyperboxes = np.zeros((len(self.classId), 2))
         # classifications
         for i in range(yX):
-            mem[i, :] = memberG(XlT[i, :], XuT[i, :], self.V, self.W, self.gamma, self.oper) # calculate memberships for all hyperboxes
-            bmax = mem[i,:].max()	                                          # get max membership value
-            maxVind = np.nonzero(mem[i,:] == bmax)[0]                         # get indexes of all hyperboxes with max membership
+            mem = memberG(XlT[i, :], XuT[i, :], self.V, self.W, self.gamma, self.oper) # calculate memberships for all hyperboxes
+            bmax = mem.max()	                                          # get max membership value
+            maxVind = np.nonzero(mem == bmax)[0]                         # get indexes of all hyperboxes with max membership
             
             if len(maxVind) == 1:
                 # Only one hyperbox with the highest membership function
@@ -369,8 +368,34 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 else:
                     no_predicted_samples_hyperboxes[maxVind[0], 1] = no_predicted_samples_hyperboxes[maxVind[0], 1] + 1
             else:
-                # More than one hyperbox with highest membership => random choosing
-                id_min = maxVind[np.random.randint(len(maxVind))]
+                if newVerPredict == True:
+                    cls_same_mem = np.unique(self.classId[maxVind])
+                    if len(cls_same_mem) > 1:
+                        is_find_prob_val = True
+                        if bmax == 1:
+                            id_box_with_one_sample = np.nonzero(self.counter[maxVind] == 1)[0]
+                            if len(id_box_with_one_sample) > 0:
+                                is_find_prob_val = False
+                                id_min = random.choice(maxVind[id_box_with_one_sample])
+                        
+                        if is_find_prob_val == True:
+                            sum_prod_denum = (mem[maxVind] * self.counter[maxVind]).sum()
+                            max_prob = -1
+                            pre_id_cls = None
+                            for c in cls_same_mem:
+                                id_cls = np.nonzero(self.classId[maxVind] == c)[0]
+                                sum_pro_num = (mem[maxVind[id_cls]] * self.counter[maxVind[id_cls]]).sum()
+                                tmp = sum_pro_num / sum_prod_denum
+                                
+                                if tmp > max_prob or (tmp == max_prob and pre_id_cls is not None and self.counter[maxVind[id_cls]].sum() > self.counter[maxVind[pre_id_cls]].sum()):
+                                    max_prob = tmp
+                                    pre_id_cls = id_cls
+                                    id_min = random.choice(maxVind[id_cls])
+                    else:
+                        id_min = random.choice(maxVind)
+                else:
+                    # More than one hyperbox with highest membership => random choosing
+                    id_min = maxVind[np.random.randint(len(maxVind))]
                         
                 if self.classId[id_min] != patClassIdTest[i] and patClassIdTest[i] != UNLABELED_CLASS:
                     no_predicted_samples_hyperboxes[id_min, 1] = no_predicted_samples_hyperboxes[id_min, 1] + 1
@@ -391,14 +416,14 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
         # keep one hyperbox for class prunned all
         current_classes = np.unique(self.classId)
         class_tmp = self.classId[accuracy_larger_half]
-		class_tmp_keep = self.classId[accuracy_larger_half_keep_nojoin]
+        class_tmp_keep = self.classId[accuracy_larger_half_keep_nojoin]
         for c in current_classes:
             if c not in class_tmp:
                 pos = np.nonzero(self.classId == c)
                 id_kept = np.random.randint(len(pos))
                 # keep pos[id_kept]
                 accuracy_larger_half[pos[id_kept]] = True
-			if c not in class_tmp_keep:
+            if c not in class_tmp_keep:
                 pos = np.nonzero(self.classId == c)
                 id_kept = np.random.randint(len(pos))
                 accuracy_larger_half_keep_nojoin[pos[id_kept]] = True
@@ -410,6 +435,7 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
         
         W_prun_keep = self.W[accuracy_larger_half_keep_nojoin]
         V_prun_keep = self.V[accuracy_larger_half_keep_nojoin]
+        
         classId_prun_keep = self.classId[accuracy_larger_half_keep_nojoin]
         numSample_prun_keep = self.classId[accuracy_larger_half_keep_nojoin]
         
