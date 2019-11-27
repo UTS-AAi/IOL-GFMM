@@ -4,9 +4,14 @@ Created on Thu Aug 30 22:39:47 2018
 
 @author: Thanh Tung Khuat
 
-Improved version of Online GFMM classifier (training core).
+Improved version of Online GFMM classifier (training core). Faster version on datasets with high dimensionality
+In this implementation, we do not use the branch and bound lemma
 
-     ImprovedOnlineGFMM(gamma, teta, sigma, isDraw, oper, isNorm, norm_range, V, W, classId)
+    Compare to previous version, in this coding, we find the hyperboxes representing the same label as the input pattern,
+    The membership grades are only computed on those hyperboxes. In constrast, in the previous version, we find membership grades for all current hyperboxes and then filter hyperboxes with the same label as the input pattern
+    The normal version runs faster on the dataset with low dimensionality. The faster version runs well on the dataset with high dimensionality
+
+     OnlineGFMM(gamma, teta, tMin, isDraw, oper, V, W, classId, isNorm, norm_range)
 
    INPUT
      V              Hyperbox lower bounds for the model to be updated using new data
@@ -14,7 +19,7 @@ Improved version of Online GFMM classifier (training core).
      classId        Hyperbox class labels (crisp)  for the model to be updated using new data
      gamma          Membership function slope (default: 1), datatype: array or scalar
      teta           Maximum hyperbox size (default: 1)
-     sigma          The minimum value of membership to expand the current hyperbox (sigma: default = 1 - teta x gamma)
+     tMin           Minimum value of Teta
      isDraw         Progress plot flag (default: False)
      oper           Membership calculation operation: 'min' or 'prod' (default: 'min')
      isNorm         Do normalization of input training samples or not?
@@ -30,6 +35,7 @@ sys.path.insert(0, os.path.pardir)
 
 import ast
 import numpy as np
+import random
 import time
 import matplotlib
 try:
@@ -44,6 +50,8 @@ from GFMM.classification import predict_with_probability, predict
 from functionhelper.drawinghelper import drawbox
 from functionhelper.preprocessinghelper import loadDataset, string_to_boolean
 from GFMM.basegfmmclassifier import BaseGFMMClassifier
+from sklearn.metrics import accuracy_score, classification_report
+from functionhelper.measurehelper import manhattan_distance
 
 class ImprovedOnlineGFMM(BaseGFMMClassifier):
 
@@ -56,14 +64,14 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
         self.sigma = sigma      
 
 
-    def fit(self, X_l, X_u, patClassId):
+    def fit(self, X_l, X_u, patClassId, num_pat=None):
         """
         Training the classifier
 
          Xl             Input data lower bounds (rows = objects, columns = features)
          Xu             Input data upper bounds (rows = objects, columns = features)
          patClassId     Input data class labels (crisp). patClassId[i] = 0 corresponds to an unlabeled item
-
+         num_pat        Save the number of samples in hyperboxes [X_l, X_u]
         """
         #print('--Online Learning--')
 
@@ -99,7 +107,7 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 self.delay()
 
         self.misclass = 1
-        threshold = max(self.sigma, 1 - self.gamma * self.teta)
+        threshold = 0 # No using lemma for branch and bound
         # for each input sample
         for i in range(yX):
             classOfX = patClassId[i]
@@ -136,8 +144,11 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 self.V = np.array([X_l[0]])
                 self.W = np.array([X_u[0]])
                 self.classId = np.array([patClassId[0]])
-                self.counter = np.array([1]) # save number of samples of each hyperbox
-
+                if num_pat is None:
+                    self.counter = np.array([1]) # save number of samples of each hyperbox
+                else:
+                    self.counter = np.array([num_pat[0]])
+                    
                 if self.isDraw == True:
                     # draw hyperbox
                     box_color = 'k'
@@ -160,110 +171,98 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                     lb_sameX = self.classId[id_lb_sameX]
 
                     b = memberG(X_l[i], X_u[i], V_sameX, W_sameX, self.gamma)
-                    consider_hypeboxes_id = np.nonzero(b >= threshold)[0]
+                    index = np.argsort(b)[::-1]
                     
-                    if len(consider_hypeboxes_id) > 0:
-                        b = b[consider_hypeboxes_id]
-                        index = np.argsort(b)[::-1]
-                        consider_hypeboxes_id = consider_hypeboxes_id[index]   
-                    
-                        if b[index[0]] != 1 or (classOfX != lb_sameX[consider_hypeboxes_id[0]] and classOfX != UNLABELED_CLASS):
-                            adjust = False
+                    if b[index[0]] != 1 or (classOfX != lb_sameX[index[0]] and classOfX != UNLABELED_CLASS):
+                        adjust = False
+                        
+                        id_lb_diff = ((self.classId != classOfX) | (self.classId == UNLABELED_CLASS))
+                        V_diff = self.V[id_lb_diff]
+                        W_diff = self.W[id_lb_diff]
+                        
+                        indcomp = np.nonzero((W_diff >= V_diff).all(axis = 1))[0] 	# examine only hyperboxes w/o missing dimensions, meaning that in each dimension upper bound is larger than lowerbound
+                        no_check_overlap = False
+                        if len(indcomp) == 0 or len(V_diff) == 0:
+                            no_check_overlap = True
+                        else:
+                            V_diff = V_diff_save = V_diff[indcomp]
+                            W_diff = W_diff_save = W_diff[indcomp]
+                        
+                        for j in id_lb_sameX[index]:
+                            minV_new = np.minimum(self.V[j], X_l[i])
+                            maxW_new = np.maximum(self.W[j], X_u[i])
                             
-                            id_lb_diff = ((self.classId != classOfX) | (self.classId == UNLABELED_CLASS))
-                            V_diff = self.V[id_lb_diff]
-                            W_diff = self.W[id_lb_diff]
-                            
-                            indcomp = np.nonzero((W_diff >= V_diff).all(axis = 1))[0] 	# examine only hyperboxes w/o missing dimensions, meaning that in each dimension upper bound is larger than lowerbound
-                            no_check_overlap = False
-                            if len(indcomp) == 0 or len(V_diff) == 0:
-                                no_check_overlap = True
-                            else:
-                                V_diff = V_diff_save = V_diff[indcomp]
-                                W_diff = W_diff_save = W_diff[indcomp]
-                            
-                            for j in id_lb_sameX[consider_hypeboxes_id]:
-                                minV_new = np.minimum(self.V[j], X_l[i])
-                                maxW_new = np.maximum(self.W[j], X_u[i])
-                                
-                                # test violation of max hyperbox size and class labels
-                                if ((maxW_new - minV_new) <= teta).all() == True:
-                                    if no_check_overlap == False and classOfX == UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:
-                                        # remove hyperbox themself
-                                        keep_id = (V_diff != self.V[j]).all(1)
-                                        V_diff = V_diff[keep_id]
-                                        W_diff = W_diff[keep_id]
-                                    # Test overlap    
-                                    if no_check_overlap == True or directedIsOverlap(V_diff, W_diff, minV_new, maxW_new) == False:		# overlap test
-                                        # adjust the j-th hyperbox
-                                        self.V[j] = minV_new
-                                        self.W[j] = maxW_new
+                            # test violation of max hyperbox size and class labels
+                            if ((maxW_new - minV_new) <= teta).all() == True:
+                                if no_check_overlap == False and classOfX == UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:
+                                    # remove hyperbox themself
+                                    keep_id = (V_diff != self.V[j]).all(1)
+                                    V_diff = V_diff[keep_id]
+                                    W_diff = W_diff[keep_id]
+                                # Test overlap    
+                                if no_check_overlap == True or directedIsOverlap(V_diff, W_diff, minV_new, maxW_new) == False:		# overlap test
+                                    # adjust the j-th hyperbox
+                                    self.V[j] = minV_new
+                                    self.W[j] = maxW_new
+                                    if num_pat is None:
                                         self.counter[j] = self.counter[j] + 1
-                                        
-                                        if classOfX != UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:
-                                            self.classId[j] = classOfX
-                                        
-                                        if self.isDraw:
-                                            # Handle drawing graph
-                                            box_color = 'k'
-                                            if self.classId[j] < len(mark_col):
-                                                box_color = mark_col[self.classId[j]]
-        
-                                            try:
-                                                listLines[j].remove()
-                                            except:
-                                                pass
-        
-                                            hyperbox = drawbox(np.asmatrix(self.V[j, 0:np.minimum(xX, 3)]), np.asmatrix(self.W[j, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
-                                            listLines[j] = hyperbox[0]
-                                            self.delay()
-                                        
-                                        adjust = True
-                                        break
                                     else:
-                                        if no_check_overlap == False and classOfX == UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:                                   
-                                            V_diff = V_diff_save
-                                            W_diff = W_diff_save
+                                        self.counter[j] = self.counter[j] + num_pat[i]
+                                    
+                                    if classOfX != UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:
+                                        self.classId[j] = classOfX
+                                    
+                                    if self.isDraw:
+                                        # Handle drawing graph
+                                        box_color = 'k'
+                                        if self.classId[j] < len(mark_col):
+                                            box_color = mark_col[self.classId[j]]
+    
+                                        try:
+                                            listLines[j].remove()
+                                        except:
+                                            pass
+    
+                                        hyperbox = drawbox(np.asmatrix(self.V[j, 0:np.minimum(xX, 3)]), np.asmatrix(self.W[j, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
+                                        listLines[j] = hyperbox[0]
+                                        self.delay()
+                                    
+                                    adjust = True
+                                    break
+                                else:
+                                    if no_check_overlap == False and classOfX == UNLABELED_CLASS and self.classId[j] == UNLABELED_CLASS:                                   
+                                        V_diff = V_diff_save
+                                        W_diff = W_diff_save
                                    
     
-                            # if i-th sample did not fit into any existing box, create a new one
-                            if not adjust:
-                                self.V = np.concatenate((self.V, X_l[i].reshape(1, -1)), axis = 0)
-                                self.W = np.concatenate((self.W, X_u[i].reshape(1, -1)), axis = 0)
-                                self.classId = np.concatenate((self.classId, [classOfX]))
+                        # if i-th sample did not fit into any existing box, create a new one
+                        if not adjust:
+                            self.V = np.concatenate((self.V, X_l[i].reshape(1, -1)), axis = 0)
+                            self.W = np.concatenate((self.W, X_u[i].reshape(1, -1)), axis = 0)
+                            self.classId = np.concatenate((self.classId, [classOfX]))
+                            if num_pat is None:
                                 self.counter = np.concatenate((self.counter, [1]))
-        
-                                if self.isDraw:
-                                    # handle drawing graph
-                                    box_color = 'k'
-                                    if self.classId[-1] < len(mark_col):
-                                        box_color = mark_col[self.classId[-1]]
-        
-                                    hyperbox = drawbox(np.asmatrix(X_l[i, 0:np.minimum(xX, 3)]), np.asmatrix(X_u[i, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
-                                    listLines.append(hyperbox[0])
-                                    self.delay()
-                    else:
-                        # If no hyperbox can expand to cover input pattern => Add new hyperbox
-                        self.V = np.concatenate((self.V, X_l[i].reshape(1, -1)), axis = 0)
-                        self.W = np.concatenate((self.W, X_u[i].reshape(1, -1)), axis = 0)
-                        self.classId = np.concatenate((self.classId, [classOfX]))
-                        self.counter = np.concatenate((self.counter, [1]))
-                        
-                        if self.isDraw:
-                            # handle drawing graph
-                            box_color = 'k'
-                            if self.classId[-1] < len(mark_col):
-                                box_color = mark_col[self.classId[-1]]
-
-                            hyperbox = drawbox(np.asmatrix(X_l[i, 0:np.minimum(xX, 3)]), np.asmatrix(X_u[i, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
-                            listLines.append(hyperbox[0])
-                            self.delay()
-
+                            else:
+                                self.counter = np.concatenate((self.counter, [num_pat[i]]))
+    
+                            if self.isDraw:
+                                # handle drawing graph
+                                box_color = 'k'
+                                if self.classId[-1] < len(mark_col):
+                                    box_color = mark_col[self.classId[-1]]
+    
+                                hyperbox = drawbox(np.asmatrix(X_l[i, 0:np.minimum(xX, 3)]), np.asmatrix(X_u[i, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
+                                listLines.append(hyperbox[0])
+                                self.delay()
                 else:
                     self.V = np.concatenate((self.V, X_l[i].reshape(1, -1)), axis = 0)
                     self.W = np.concatenate((self.W, X_u[i].reshape(1, -1)), axis = 0)
                     self.classId = np.concatenate((self.classId, [classOfX]))
-                    self.counter = np.concatenate((self.counter, [1]))
+                    
+                    if num_pat is None:
+                        self.counter = np.concatenate((self.counter, [1]))
+                    else:
+                        self.counter = np.concatenate((self.counter, [num_pat[i]]))
 
                     if self.isDraw:
                         # handle drawing graph
@@ -299,9 +298,8 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
             result        A object with Bunch datatype containing all results as follows:
                           + summis           Number of misclassified objects
                           + misclass         Binary error map
-                          + sumamb           Number of objects with maximum membership in more than one class
-                          + out              Soft class memberships
-                          + mem              Hyperbox memberships
+                          + numSampleInBoundary     The number of samples in decision boundary
+                          + predicted_class   Predicted class
         """
         #Xl_Test, Xu_Test = delete_const_dims(Xl_Test, Xu_Test)
         # Normalize testing dataset if training datasets were normalized
@@ -333,6 +331,8 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                 result = predict_with_probability(self.V, self.W, self.classId, self.counter, Xl_Test, Xu_Test, patClassIdTest, self.gamma, self.oper)
             else:
                 result = predict(self.V, self.W, self.classId, Xl_Test, Xu_Test, patClassIdTest, self.gamma, self.oper)
+                
+            self.predicted_class = np.array(result.predicted_class, np.int)
 
         return result
     
@@ -466,7 +466,7 @@ if __name__ == '__main__':
     arg2: path to file containing the training dataset (arg1 = 1) or both training and testing datasets (arg1 = 2)
     arg3: + path to file containing the testing dataset (arg1 = 1)
           + percentage of the training dataset in the input file
-    arg4: + path to file containing the validation dataset (If no using validation file => input "" at this position in command line
+    arg4: + path to file containing the validation dataset
     arg5: + True: drawing hyperboxes during the training process
           + False: no drawing
     arg6: + Maximum size of hyperboxes (teta, default: 1)
@@ -477,67 +477,83 @@ if __name__ == '__main__':
     arg11: + range of input values after normalization (default: [0, 1])
     """
     # Init default parameters
-    if len(sys.argv) < 6:
-        isDraw = False
-    else:
-        isDraw = string_to_boolean(sys.argv[5])
-
-    if len(sys.argv) < 7:
-        teta = 1
-    else:
-        teta = float(sys.argv[6])
-
-    if len(sys.argv) < 8:
-        gamma = 1
-    else:
-        gamma = float(sys.argv[7])
-        
-    if len(sys.argv) < 9:
-        sigma = 1 - teta * gamma
-    else:
-        sigma = float(sys.argv[8])
-
-    if len(sys.argv) < 10:
-        oper = 'min'
-    else:
-        oper = sys.argv[9]
-
-    if len(sys.argv) < 11:
-        isNorm = True
-    else:
-        isNorm = string_to_boolean(sys.argv[10])
-
-    if len(sys.argv) < 12:
-        norm_range = [0, 1]
-    else:
-        norm_range = ast.literal_eval(sys.argv[11])
-
-    # print('isDraw = ', isDraw, ' teta = ', teta, ' teta_min = ', teta_min, ' gamma = ', gamma, ' oper = ', oper, ' isNorm = ', isNorm, ' norm_range = ', norm_range)
-    start_t = time.perf_counter()
-    if sys.argv[1] == '1':
-        training_file = sys.argv[2]
-        testing_file = sys.argv[3]
-
-        # Read training file
-        Xtr, X_tmp, patClassIdTr, pat_tmp = loadDataset(training_file, 1, False)
-        # Read testing file
-        X_tmp, Xtest, pat_tmp, patClassIdTest = loadDataset(testing_file, 0, False)
-
-    else:
-        dataset_file = sys.argv[2]
-        percent_Training = float(sys.argv[3])
-        Xtr, Xtest, patClassIdTr, patClassIdTest = loadDataset(dataset_file, percent_Training, False)
+#    if len(sys.argv) < 6:
+#        isDraw = False
+#    else:
+#        isDraw = string_to_boolean(sys.argv[5])
+#
+#    if len(sys.argv) < 7:
+#        teta = 1
+#    else:
+#        teta = float(sys.argv[6])
+#
+#    if len(sys.argv) < 8:
+#        gamma = 1
+#    else:
+#        gamma = float(sys.argv[7])
+#        
+#    if len(sys.argv) < 9:
+#        sigma = 1 - teta * gamma
+#    else:
+#        sigma = float(sys.argv[8])
+#
+#    if len(sys.argv) < 10:
+#        oper = 'min'
+#    else:
+#        oper = sys.argv[9]
+#
+#    if len(sys.argv) < 11:
+#        isNorm = True
+#    else:
+#        isNorm = string_to_boolean(sys.argv[10])
+#
+#    if len(sys.argv) < 12:
+#        norm_range = [0, 1]
+#    else:
+#        norm_range = ast.literal_eval(sys.argv[11])
+#
+#    # print('isDraw = ', isDraw, ' teta = ', teta, ' teta_min = ', teta_min, ' gamma = ', gamma, ' oper = ', oper, ' isNorm = ', isNorm, ' norm_range = ', norm_range)
+#    start_t = time.perf_counter()
+#    if sys.argv[1] == '1':
+#        training_file = sys.argv[2]
+#        testing_file = sys.argv[3]
+#
+#        # Read training file
+#        Xtr, X_tmp, patClassIdTr, pat_tmp = loadDataset(training_file, 1, False)
+#        # Read testing file
+#        X_tmp, Xtest, pat_tmp, patClassIdTest = loadDataset(testing_file, 0, False)
+#
+#    else:
+#        dataset_file = sys.argv[2]
+#        percent_Training = float(sys.argv[3])
+#        Xtr, Xtest, patClassIdTr, patClassIdTest = loadDataset(dataset_file, percent_Training, False)
+#    
+#    validation_file = sys.argv[4]
+#    
+#    if (not validation_file) == True:
+#        # empty validation file
+#        print('no pruning')
+#        isPruning = False
+#    else:
+#        print('pruning')
+#        isPruning = True
+#        Xval, _, patClassIdVal, _ = loadDataset(validation_file, 1, False)
     
-    validation_file = sys.argv[4]
-    
-    if (not validation_file) == True:
-        # empty validation file
-        print('no pruning')
-        isPruning = False
-    else:
-        print('pruning')
-        isPruning = True
-        Xval, _, patClassIdVal, _ = loadDataset(validation_file, 1, False)
+    isPruning = False
+    training_file = "C:\\Hyperbox-based-ML\\Dataset\\train_test\\training_testing_data\\spambase_dps_tr.dat"
+    testing_file = "C:\\Hyperbox-based-ML\\Dataset\\train_test\\training_testing_data\\spambase_dps_test.dat"
+    validation_file = "C:\\Hyperbox-based-ML\\Dataset\\train_test\\training_testing_data\\spambase_dps_val.dat"
+    gamma = 1
+    teta = 0.1
+    sigma = 1 - teta * gamma
+    isDraw = False
+    oper = 'min'
+    isNorm = False
+    norm_range = [0, 1]
+    # Read training file
+    Xtr, X_tmp, patClassIdTr, pat_tmp = loadDataset(training_file, 1, False)
+    # Read testing file
+    X_tmp, Xtest, pat_tmp, patClassIdTest = loadDataset(testing_file, 0, False)
     
     classifier = ImprovedOnlineGFMM(gamma, teta, sigma, isDraw, oper, isNorm, norm_range)
     classifier.fit(Xtr, Xtr, patClassIdTr)
@@ -551,7 +567,7 @@ if __name__ == '__main__':
         print('W size = ', classifier.W.shape)
     end_t = time.perf_counter()
     
-    print("Reading file + Training and pruning Time = ", end_t - start_t)
+    #print("Reading file + Training and pruning Time = ", end_t - start_t)
     
     # Testing
     print("-- Testing --")
@@ -560,3 +576,12 @@ if __name__ == '__main__':
         print("Number of wrong predicted samples = ", result.summis)
         numTestSample = Xtest.shape[0]
         print("Error Rate = ", np.round(result.summis / numTestSample * 100, 2), "%")
+        predicted_class = np.array(result.predicted_class, np.int64)
+        print(classification_report(patClassIdTest, predicted_class))
+
+#    print("-- Testing on Validation file --")
+#    result = classifier.predict(Xval, patClassIdVal)
+#    if result != None:
+#        print("Number of wrong predicted samples = ", result.summis)
+#        numTestSample = Xval.shape[0]
+#        print("Error Rate = ", np.round(result.summis / numTestSample * 100, 2), "%")
