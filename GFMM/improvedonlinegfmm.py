@@ -258,7 +258,7 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
 						t = 0
                         while (t + 1 < len(index)) and (b[index[t]] == 1) and (self.classId[index[t]] != classOfX):
                             t = t + 1
-                        if b[index[t]] == 1:
+                        if b[index[t]] == 1 and self.classId[index[t]] == classOfX:
                             if num_pat is None:
                                 self.counter[index[t]] = self.counter[index[t]] + 1
                             else:
