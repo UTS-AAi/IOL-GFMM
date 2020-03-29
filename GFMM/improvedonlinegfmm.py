@@ -254,6 +254,15 @@ class ImprovedOnlineGFMM(BaseGFMMClassifier):
                                 hyperbox = drawbox(np.asmatrix(X_l[i, 0:np.minimum(xX, 3)]), np.asmatrix(X_u[i, 0:np.minimum(xX, 3)]), drawing_canvas, box_color)
                                 listLines.append(hyperbox[0])
                                 self.delay()
+					else:
+						t = 0
+                        while (t + 1 < len(index)) and (b[index[t]] == 1) and (self.classId[index[t]] != classOfX):
+                            t = t + 1
+                        if b[index[t]] == 1:
+                            if num_pat is None:
+                                self.counter[index[t]] = self.counter[index[t]] + 1
+                            else:
+                                self.counter[index[t]] = self.counter[index[t]] + num_pat[i]
                 else:
                     self.V = np.concatenate((self.V, X_l[i].reshape(1, -1)), axis = 0)
                     self.W = np.concatenate((self.W, X_u[i].reshape(1, -1)), axis = 0)
