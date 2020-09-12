@@ -338,12 +338,12 @@ class OnlineGFMM(BaseGFMMClassifier):
 		class_tmp_keep = self.classId[accuracy_larger_half_keep_nojoin]
         for c in current_classes:
             if c not in class_tmp:
-                pos = np.nonzero(self.classId == c)
+                pos = np.nonzero(self.classId == c)[0]
                 id_kept = np.random.randint(len(pos))
                 # keep pos[id_kept]
                 accuracy_larger_half[pos[id_kept]] = True
 			if c not in class_tmp_keep:
-                pos = np.nonzero(self.classId == c)
+                pos = np.nonzero(self.classId == c)[0]
                 id_kept = np.random.randint(len(pos))
                 accuracy_larger_half_keep_nojoin[pos[id_kept]] = True
         
